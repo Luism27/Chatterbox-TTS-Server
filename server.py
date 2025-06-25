@@ -4,6 +4,7 @@
 # configuration management, and file uploads.
 
 import base64
+import json
 import os
 import io
 import logging
@@ -21,6 +22,7 @@ import webbrowser  # For automatic browser opening
 import threading  # For automatic browser opening
 
 from fastapi import (
+    APIRouter,
     FastAPI,
     HTTPException,
     Request,
@@ -28,6 +30,8 @@ from fastapi import (
     UploadFile,
     Form,
     BackgroundTasks,
+    WebSocket,
+    WebSocketDisconnect,
 )
 from fastapi.responses import (
     HTMLResponse,
@@ -931,6 +935,59 @@ async def tts_livekit_endpoint(request: LivekitTTSRequest):
     )
 
 
+router = APIRouter()
+
+@router.websocket("/stream")
+async def websocket_tts(websocket: WebSocket):
+    await websocket.accept()
+    print("WebSocket conectado")
+
+    try:
+        while True:
+            message = await websocket.receive_text()
+            data = json.loads(message)
+
+            text = data.get("data")
+            voice_uuid = data.get("voice_uuid")
+            request_id = data.get("request_id")
+            output_format = data.get("output_format", "mp3")
+            sample_rate = data.get("sample_rate", 44100)
+
+            # Sintetiza el audio (usa tu función interna o el engine directamente)
+            audio_tensor, _ = engine.synthesize(
+                text=text,
+                audio_prompt_path=str(get_predefined_voices_path() / voice_uuid),
+                temperature=0.5,
+                exaggeration=0.5,
+            )
+
+            # Codifica como audio final (esto lo haces en tu lógica actual)
+            audio_np = audio_tensor.cpu().numpy().squeeze()
+            encoded_audio_bytes = utils.encode_audio(
+                audio_array=audio_np,
+                sample_rate=sample_rate,
+                output_format=output_format,
+                target_sample_rate=sample_rate,
+            )
+
+            audio_b64 = base64.b64encode(encoded_audio_bytes).decode("utf-8")
+
+            # Envia fragmento de audio
+            await websocket.send_json({
+                "type": "audio",
+                "audio_content": audio_b64
+            })
+
+            # Envia fin de audio
+            await websocket.send_json({
+                "type": "audio_end",
+                "request_id": request_id
+            })
+
+    except WebSocketDisconnect:
+        print("WebSocket desconectado")
+
+
 @app.post("/v1/audio/speech", tags=["OpenAI Compatible"])
 async def openai_speech_endpoint(request: OpenAISpeechRequest):
     # Determine the audio prompt path based on the voice parameter
@@ -1008,6 +1065,7 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
         logger.error(f"Error in openai_speech_endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+app.include_router(router)
 
 # --- Main Execution ---
 if __name__ == "__main__":
