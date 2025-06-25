@@ -919,7 +919,10 @@ async def tts_livekit_endpoint(request: LivekitTTSRequest):
     audio_response: StreamingResponse = await custom_tts_endpoint(custom_request, BackgroundTasks())
 
     # Extraemos el audio de StreamingResponse
-    audio_bytes = await audio_response.body_iterator.__anext__()  # solo 1 chunk
+    chunks = []
+    async for chunk in audio_response.body_iterator:
+        chunks.append(chunk)
+    audio_bytes = b"".join(chunks)
     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
     return JSONResponse(
