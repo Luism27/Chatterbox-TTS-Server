@@ -967,17 +967,15 @@ async def websocket_tts(websocket: WebSocket):
             audio_response: StreamingResponse = await custom_tts_endpoint(custom_request, BackgroundTasks())
 
             # Extraemos el audio de StreamingResponse
-            chunks = []
             async for chunk in audio_response.body_iterator:
-                chunks.append(chunk)
-            audio_bytes = b"".join(chunks)
-            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                audio_bytes = b"".join(chunk)
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-            # Envia fragmento de audio
-            await websocket.send_json({
-                "type": "audio",
-                "audio_content": audio_b64
-            })
+                # Envia fragmento de audio
+                await websocket.send_json({
+                    "type": "audio",
+                    "audio_content": audio_b64
+                })
 
             # Envia fin de audio
             await websocket.send_json({
