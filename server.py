@@ -968,7 +968,7 @@ async def websocket_tts(websocket: WebSocket):
             chunks = []
             # Extraemos el audio de StreamingResponse
             async for chunk in audio_response.body_iterator:
-                chunk.append(chunk)
+                chunks.append(chunk)
 
             audio_bytes = b"".join(chunks)
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
