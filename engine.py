@@ -59,6 +59,24 @@ def _test_cuda_functionality() -> bool:
         logger.warning(f"CUDA functionality test failed: {e}")
         return False
 
+def _test_mps_functionality() -> bool:
+    """
+    Tests if MPS (Metal Performance Shaders) is actually functional, not just available.
+
+    Returns:
+        bool: True if MPS works, False otherwise.
+    """
+    if not torch.backends.mps.is_available():
+        return False
+
+    try:
+        test_tensor = torch.tensor([1.0])
+        test_tensor = test_tensor.to("mps")
+        test_tensor = test_tensor.cpu()
+        return True
+    except Exception as e:
+        logger.warning(f"MPS functionality test failed: {e}")
+        return False
 
 def load_model() -> bool:
     """
@@ -84,6 +102,9 @@ def load_model() -> bool:
             if _test_cuda_functionality():
                 resolved_device_str = "cuda"
                 logger.info("CUDA functionality test passed. Using CUDA.")
+            if _test_mps_functionality():
+                resolved_device_str = "mps"
+                logger.info("MPS functionality test passed. Using MPS.")
             else:
                 resolved_device_str = "cpu"
                 logger.info("CUDA not functional or not available. Using CPU.")
