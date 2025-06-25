@@ -952,25 +952,26 @@ async def websocket_tts(websocket: WebSocket):
             request_id = data.get("request_id")
             output_format = data.get("output_format", "mp3")
             sample_rate = data.get("sample_rate", 44100)
+            temperature = data.get("temperature", 0.5)
+            exaggeration = data.get("exaggeration", 0.5)
 
-            # Sintetiza el audio (usa tu función interna o el engine directamente)
-            audio_tensor, _ = engine.synthesize(
+            custom_request = CustomTTSRequest(
                 text=text,
-                audio_prompt_path=str(get_predefined_voices_path() / voice_uuid),
-                temperature=0.5,
-                exaggeration=0.5,
-            )
-
-            # Codifica como audio final (esto lo haces en tu lógica actual)
-            audio_np = audio_tensor.cpu().numpy().squeeze()
-            encoded_audio_bytes = utils.encode_audio(
-                audio_array=audio_np,
-                sample_rate=sample_rate,
                 output_format=output_format,
-                target_sample_rate=sample_rate,
+                voice_mode="predefined",
+                predefined_voice_id=voice_uuid,
+                temperature=temperature,
+                exaggeration=exaggeration,
             )
+            # Sintetiza el audio (usa tu función interna o el engine directamente)
+            audio_response: StreamingResponse = await custom_tts_endpoint(custom_request, BackgroundTasks())
 
-            audio_b64 = base64.b64encode(encoded_audio_bytes).decode("utf-8")
+            # Extraemos el audio de StreamingResponse
+            chunks = []
+            async for chunk in audio_response.body_iterator:
+                chunks.append(chunk)
+            audio_bytes = b"".join(chunks)
+            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
             # Envia fragmento de audio
             await websocket.send_json({
