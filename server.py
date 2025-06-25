@@ -3,6 +3,7 @@
 # Handles API requests for text-to-speech generation, UI serving,
 # configuration management, and file uploads.
 
+import base64
 import os
 import io
 import logging
@@ -598,7 +599,12 @@ async def upload_predefined_voice_endpoint(files: List[UploadFile] = File(...)):
 
 
 # --- TTS Generation Endpoint ---
-
+class LivekitTTSRequest(BaseModel):
+    voice_uuid: str
+    text: str
+    output_format: str = "wav"
+    temperature: float = 0.5
+    exaggeration: float = 0.5
 
 @app.post(
     "/tts",
@@ -895,6 +901,30 @@ async def custom_tts_endpoint(
 
     return StreamingResponse(
         io.BytesIO(encoded_audio_bytes), media_type=media_type, headers=headers
+    )
+
+@app.post("/tts-livekit")
+async def tts_livekit_endpoint(request: LivekitTTSRequest):
+    # Reutilizamos el endpoint real usando un objeto de tipo CustomTTSRequest
+    custom_request = CustomTTSRequest(
+        text=request.text,
+        output_format=request.output_format,
+        voice_mode="predefined",
+        predefined_voice_id=request.voice_uuid,
+        temperature=request.temperature,
+        exaggeration=request.exaggeration,
+    )
+
+    # Llamamos a la función existente, pero capturamos el resultado en memoria
+    audio_response: StreamingResponse = await custom_tts_endpoint(custom_request, BackgroundTasks())
+
+    # Extraemos el audio de StreamingResponse
+    audio_bytes = await audio_response.body_iterator.__anext__()  # solo 1 chunk
+    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+    return JSONResponse(
+        status_code=200,
+        content={"success": True, "audio_content": audio_b64},
     )
 
 
