@@ -954,7 +954,7 @@ async def websocket_tts(websocket: WebSocket):
             sample_rate = data.get("sample_rate", 44100)
             temperature = data.get("temperature", 0.5)
             exaggeration = data.get("exaggeration", 0.5)
-
+            print('output_format: ', output_format)
             custom_request = CustomTTSRequest(
                 text=text,
                 output_format=output_format,
