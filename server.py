@@ -3,6 +3,7 @@
 # Handles API requests for text-to-speech generation, UI serving,
 # configuration management, and file uploads.
 
+import asyncio
 import base64
 import json
 import os
@@ -940,54 +941,83 @@ router = APIRouter()
 @router.websocket("/stream")
 async def websocket_tts(websocket: WebSocket):
     await websocket.accept()
-    print("WebSocket conectado")
+    print("[WS] Cliente conectado")
 
     try:
         while True:
-            message = await websocket.receive_text()
-            data = json.loads(message)
+            raw_msg = await websocket.receive_text()
+            data = json.loads(raw_msg)
 
             text = data.get("data")
             voice_uuid = data.get("voice_uuid")
             request_id = data.get("request_id")
-            output_format = data.get("output_format", "wav")
-            sample_rate = data.get("sample_rate", 44100)
+            output_format = data.get("output_format", "mp3")
             temperature = data.get("temperature", 0.5)
             exaggeration = data.get("exaggeration", 0.5)
-            print('output_format: ', output_format)
-            custom_request = CustomTTSRequest(
-                text=text,
-                output_format=output_format,
-                voice_mode="predefined",
-                predefined_voice_id=voice_uuid,
-                temperature=temperature,
-                exaggeration=exaggeration,
+
+            perf_monitor = utils.PerformanceMonitor(
+                enabled=config_manager.get_bool("server.enable_performance_monitor", False)
             )
-            # Sintetiza el audio (usa tu función interna o el engine directamente)
-            audio_response: StreamingResponse = await custom_tts_endpoint(custom_request, BackgroundTasks())
-            chunks = []
-            # Extraemos el audio de StreamingResponse
-            async for chunk in audio_response.body_iterator:
-                chunks.append(chunk)
+            perf_monitor.record("TTS request received")
 
-            audio_bytes = b"".join(chunks)
-            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+            if not engine.MODEL_LOADED:
+                await websocket.send_json({"type": "error", "detail": "TTS engine not loaded."})
+                return
 
-            # Envia fragmento de audio
-            await websocket.send_json({
-                "type": "audio",
-                "audio_content": audio_b64
-            })
+            voice_path: Optional[str] = None
+            if voice_uuid:
+                voices_dir = get_predefined_voices_path(ensure_absolute=True)
+                potential_path = voices_dir / voice_uuid
+                if not potential_path.is_file():
+                    await websocket.send_json({"type": "error", "detail": f"Voice file not found: {voice_uuid}"})
+                    return
+                voice_path = str(potential_path)
 
-            # Envia fin de audio
-            await websocket.send_json({
-                "type": "audio_end",
-                "request_id": request_id
-            })
+            text_chunks = utils.chunk_text_by_sentences(text, 120)
+            all_audio_segments = []
+            engine_sr = None
+
+            for i, chunk in enumerate(text_chunks):
+                audio_tensor, sr = engine.synthesize(
+                    text=chunk,
+                    audio_prompt_path=voice_path,
+                    temperature=temperature,
+                    exaggeration=exaggeration,
+                    seed=None
+                )
+                if engine_sr is None:
+                    engine_sr = sr
+                audio_np = audio_tensor.cpu().numpy().squeeze()
+                all_audio_segments.append(audio_np)
+
+            if not all_audio_segments:
+                await websocket.send_json({"type": "error", "detail": "No audio generated."})
+                return
+
+            final_audio = np.concatenate(all_audio_segments)
+            encoded_audio = utils.encode_audio(
+                audio_array=final_audio,
+                sample_rate=engine_sr,
+                output_format=output_format,
+                target_sample_rate=config_manager.get_int("audio_output.sample_rate", engine_sr)
+            )
+
+            chunk_size = 2048
+            for i in range(0, len(encoded_audio), chunk_size):
+                chunk = encoded_audio[i:i+chunk_size]
+                chunk_b64 = base64.b64encode(chunk).decode("utf-8")
+                await websocket.send_json({"type": "audio", "audio_content": chunk_b64})
+                await asyncio.sleep(0.01)
+
+            await websocket.send_json({"type": "audio_end", "request_id": request_id})
 
     except WebSocketDisconnect:
-        print("WebSocket desconectado")
+        print("[WS] Cliente desconectado")
 
+    except Exception as e:
+        print(f"[WS] Error: {e}")
+        await websocket.send_json({"type": "error", "detail": str(e)})
+        await websocket.close()
 
 @app.post("/v1/audio/speech", tags=["OpenAI Compatible"])
 async def openai_speech_endpoint(request: OpenAISpeechRequest):
