@@ -983,7 +983,7 @@ async def websocket_tts(websocket: WebSocket):
                     audio_prompt_path=voice_path,
                     temperature=temperature,
                     exaggeration=exaggeration,
-                    seed=None
+                    seed=get_gen_default_seed(),
                 )
                 if engine_sr is None:
                     engine_sr = sr
