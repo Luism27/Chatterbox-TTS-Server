@@ -950,7 +950,7 @@ async def websocket_tts(websocket: WebSocket):
             text = data.get("data")
             voice_uuid = data.get("voice_uuid")
             request_id = data.get("request_id")
-            output_format = data.get("output_format", "mp3")
+            output_format = data.get("output_format", "wav")
             sample_rate = data.get("sample_rate", 44100)
             temperature = data.get("temperature", 0.5)
             exaggeration = data.get("exaggeration", 0.5)
