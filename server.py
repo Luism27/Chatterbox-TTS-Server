@@ -12,6 +12,7 @@ import logging
 import logging.handlers  # For RotatingFileHandler
 import shutil
 import time
+import traceback
 import uuid
 import yaml  # For loading presets
 import numpy as np
@@ -939,84 +940,78 @@ async def tts_livekit_endpoint(request: LivekitTTSRequest):
 router = APIRouter()
 
 @router.websocket("/stream")
-async def websocket_tts(websocket: WebSocket):
+async def websocket_stream(websocket: WebSocket):
     await websocket.accept()
-    print("[WS] Cliente conectado")
+    perf_monitor = utils.PerformanceMonitor(enabled=True)
 
     try:
         while True:
-            raw_msg = await websocket.receive_text()
-            data = json.loads(raw_msg)
+            data = await websocket.receive_text()
+            payload = json.loads(data)
 
-            text = data.get("data")
-            voice_uuid = data.get("voice_uuid")
-            request_id = data.get("request_id")
-            output_format = data.get("output_format", "mp3")
-            temperature = data.get("temperature", 0.5)
-            exaggeration = data.get("exaggeration", 0.5)
+            text = payload.get("text") or payload.get("data")
+            voice_id = payload.get("predefined_voice_id") or payload.get("voice_uuid")
+            output_format = payload.get("output_format", "mp3")
+            sample_rate = payload.get("sample_rate") or get_audio_sample_rate()
 
-            perf_monitor = utils.PerformanceMonitor(
-                enabled=config_manager.get_bool("server.enable_performance_monitor", False)
-            )
-            perf_monitor.record("TTS request received")
+            if not text or not voice_id:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Missing 'text' or 'voice_uuid'"
+                }))
+                continue
 
-            if not engine.MODEL_LOADED:
-                await websocket.send_json({"type": "error", "detail": "TTS engine not loaded."})
-                return
+            perf_monitor.record("TTS WebSocket request received")
 
-            voice_path: Optional[str] = None
-            if voice_uuid:
-                voices_dir = get_predefined_voices_path(ensure_absolute=True)
-                potential_path = voices_dir / voice_uuid
-                if not potential_path.is_file():
-                    await websocket.send_json({"type": "error", "detail": f"Voice file not found: {voice_uuid}"})
-                    return
-                voice_path = str(potential_path)
-
-            text_chunks = utils.chunk_text_by_sentences(text, 120)
-            all_audio_segments = []
-            engine_sr = None
-
-            for i, chunk in enumerate(text_chunks):
-                audio_tensor, sr = engine.synthesize(
-                    text=chunk,
-                    audio_prompt_path=voice_path,
-                    temperature=temperature,
-                    exaggeration=exaggeration,
-                    seed=get_gen_default_seed(),
+            try:
+                audio_tensor, sr = utils.synthesize(
+                    text=text,
+                    audio_prompt_path=f"voices/{voice_id}",
+                    temperature=0.75,
+                    exaggeration=1.0,
+                    cfg_weight=1.5,
+                    seed=42
                 )
-                if engine_sr is None:
-                    engine_sr = sr
+
+                if audio_tensor is None or sr is None:
+                    raise RuntimeError("Synthesis returned None.")
+
                 audio_np = audio_tensor.cpu().numpy().squeeze()
-                all_audio_segments.append(audio_np)
 
-            if not all_audio_segments:
-                await websocket.send_json({"type": "error", "detail": "No audio generated."})
-                return
+                encoded_audio = utils.encode_audio(
+                    audio_array=audio_np,
+                    sample_rate=sr,
+                    output_format=output_format,
+                    target_sample_rate=sample_rate,
+                )
 
-            final_audio = np.concatenate(all_audio_segments)
-            encoded_audio = utils.encode_audio(
-                audio_array=final_audio,
-                sample_rate=engine_sr,
-                output_format=output_format,
-                target_sample_rate=config_manager.get_int("audio_output.sample_rate", engine_sr)
-            )
+                chunk_b64 = base64.b64encode(encoded_audio).decode("utf-8")
 
-            chunk_size = 2048
-            for i in range(0, len(encoded_audio), chunk_size):
-                chunk = encoded_audio[i:i+chunk_size]
-                chunk_b64 = base64.b64encode(chunk).decode("utf-8")
-                await websocket.send_json({"type": "audio", "audio_content": chunk_b64})
-                await asyncio.sleep(0.01)
+                await websocket.send_text(json.dumps({
+                    "type": "audio",
+                    "audio_content": chunk_b64,
+                    "request_id": payload.get("request_id", "unknown")
+                }))
 
-            await websocket.send_json({"type": "audio_end", "request_id": request_id})
+                await websocket.send_text(json.dumps({
+                    "type": "audio_end",
+                    "request_id": payload.get("request_id", "unknown")
+                }))
+
+                perf_monitor.record("TTS WebSocket response sent")
+
+            except Exception as e:
+                traceback.print_exc()
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"TTS synthesis failed: {str(e)}"
+                }))
 
     except WebSocketDisconnect:
-        print("[WS] Cliente desconectado")
-
+        print("[WS] Disconnected cleanly.")
     except Exception as e:
-        print(f"[WS] Error: {e}")
-        await websocket.send_json({"type": "error", "detail": str(e)})
+        print("[WS] Error:", str(e))
+        traceback.print_exc()
         await websocket.close()
 
 @app.post("/v1/audio/speech", tags=["OpenAI Compatible"])
