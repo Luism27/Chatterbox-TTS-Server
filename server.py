@@ -964,7 +964,7 @@ async def websocket_stream(websocket: WebSocket):
             perf_monitor.record("TTS WebSocket request received")
 
             try:
-                audio_tensor, sr = utils.synthesize(
+                audio_tensor, sr = engine.synthesize(
                     text=text,
                     audio_prompt_path=f"voices/{voice_id}",
                     temperature=0.75,
