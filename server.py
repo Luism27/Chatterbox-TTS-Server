@@ -953,6 +953,10 @@ async def websocket_stream(websocket: WebSocket):
             voice_id = payload.get("predefined_voice_id") or payload.get("voice_uuid")
             output_format = payload.get("output_format", "mp3")
             sample_rate = payload.get("sample_rate") or get_audio_sample_rate()
+            temperature = payload.get("temperature", 0.5)
+            exaggeration = payload.get("exaggeration", 0.5)
+            cfg_weight = payload.get("cfg_weight", 1.5)
+            seed = payload.get("seed", 0)
 
             if not text or not voice_id:
                 await websocket.send_text(json.dumps({
@@ -967,10 +971,10 @@ async def websocket_stream(websocket: WebSocket):
                 audio_tensor, sr = engine.synthesize(
                     text=text,
                     audio_prompt_path=f"voices/{voice_id}",
-                    temperature=0.75,
-                    exaggeration=1.0,
-                    cfg_weight=1.5,
-                    seed=42
+                    temperature=temperature,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight,
+                    seed=seed
                 )
 
                 if audio_tensor is None or sr is None:
