@@ -27,7 +27,7 @@ generation_defaults:
   language: en
 audio_output:
   format: wav
-  sample_rate: 24000
+  sample_rate: 44100
   max_reference_duration_sec: 30
 ui_state:
   last_text: 'Are you tired of slow, unreliable connections? Upgrade today to Quantum
