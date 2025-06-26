@@ -1071,7 +1071,8 @@ app.include_router(router)
 # --- Main Execution ---
 if __name__ == "__main__":
     server_host = get_host()
-    server_port = get_port()
+    server_port = 8005
+    # server_port = get_port()
 
     logger.info(f"Starting TTS Server directly on http://{server_host}:{server_port}")
     logger.info(
