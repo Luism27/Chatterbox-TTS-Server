@@ -997,6 +997,8 @@ async def websocket_stream(websocket: WebSocket):
                     "request_id": payload.get("request_id", "unknown")
                 }))
 
+                await asyncio.sleep(0.005)
+
                 await websocket.send_text(json.dumps({
                     "type": "audio_end",
                     "request_id": payload.get("request_id", "unknown")
