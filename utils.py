@@ -344,6 +344,11 @@ def encode_audio(
             )
             audio_segment.export(output_buffer, format="mp3")
 
+        elif output_format == "pcm_raw":
+            audio_clipped = np.clip(audio_array, -1.0, 1.0)
+            audio_int16 = (audio_clipped * 32767).astype(np.int16)
+            output_buffer.write(audio_int16.tobytes())
+
         else:
             logger.error(
                 f"Unsupported output format requested for encoding: {output_format}"
