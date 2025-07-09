@@ -489,7 +489,7 @@ async def tts_livekit_endpoint(
         exaggeration=request.exaggeration,
     )
 
-    # Llamamos a la función existente, pero capturamos el resultado en memoria
+    # Llamamos a la función existente, pero capturamos el resultado en memorias
     audio_response: StreamingResponse = await custom_tts_endpoint(custom_request, BackgroundTasks())
 
     # Extraemos el audio de StreamingResponse
