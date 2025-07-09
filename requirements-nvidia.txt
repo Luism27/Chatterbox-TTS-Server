@@ -37,6 +37,7 @@ unidecode
 inflect
 tqdm
 hf_transfer                     # Speed up file transfers
+python-dotenv
 
 # Audio Post-processing
 pydub

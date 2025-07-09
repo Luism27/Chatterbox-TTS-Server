@@ -33,7 +33,7 @@ soundfile                       # Audio file I/O (requires libsndfile system lib
 pydub                          # Simple audio manipulation
 audiotsm                       # Audio time-scale modification
 praat-parselmouth              # Python interface to Praat speech analysis
-                               # NOTE: Use 'praat-parselmouth' not 'parselmouth' 
+                               # NOTE: Use 'praat-parselmouth' not 'parselmouth'
                                # to avoid setuptools use_2to3 compatibility issues
 
 # --- Web & API Utilities ---
@@ -42,7 +42,7 @@ requests                       # HTTP client library
 Jinja2                        # Template engine
 aiofiles                      # Async file operations
 hf_transfer                     # Speed up file transfers with the Hugging Face Hub.
-
+python-dotenv
 
 # --- Configuration & Data Processing ---
 PyYAML                        # YAML configuration file support
@@ -53,7 +53,7 @@ tqdm                          # Progress bars for loops
 
 # ============================================================================
 # INSTALLATION NOTES:
-# 
+#
 # 1. Ensure your virtual environment is activated before installation
 # 2. Run: pip install --upgrade pip
 # 3. Run: pip install -r requirements.txt

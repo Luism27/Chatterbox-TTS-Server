@@ -9,8 +9,10 @@ import json
 import io
 import logging
 import logging.handlers  # For RotatingFileHandler
+import os
 import time
 import traceback
+from dotenv import load_dotenv
 import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -63,6 +65,9 @@ from models import (  # Pydantic models
 import utils  # Utility functions
 
 from pydantic import BaseModel, Field
+
+load_dotenv()  # Carga las variables desde el archivo .env
+
 
 
 class OpenAISpeechRequest(BaseModel):
@@ -189,7 +194,9 @@ app.add_middleware(
 )
 
 #API key
-API_KEY = "thisistheapikey"
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise RuntimeError("API_KEY is not set in environment")
 
 async def check_api_key(authorization: str = Header(...)):
     print(f'authorization: {authorization}')
