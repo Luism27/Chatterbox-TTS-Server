@@ -38,6 +38,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+import torch
 
 # --- Internal Project Imports ---
 from config import (
@@ -571,17 +572,19 @@ async def websocket_stream(websocket: WebSocket):
 
             if audio_tensor is None or sr is None:
                 raise RuntimeError("TTS synthesis returned None")
+            logger.info(f"[WS] Synthesized audio for request {request_id} and format {output_format}.")
+            if output_format in ["pcm_raw"]:
+                audio_bytes = audio_tensor.squeeze().cpu().to(torch.int16).numpy().tobytes()
+                await websocket.send_bytes(audio_bytes)
+            elif output_format in ["wav", "opus"]:
+                audio_np = audio_tensor.cpu().numpy().squeeze()
 
-            audio_np = audio_tensor.cpu().numpy().squeeze()
-
-            encoded_audio = utils.encode_audio(
-                audio_array=audio_np,
-                sample_rate=sr,
-                output_format=output_format,
-                target_sample_rate=sample_rate,
-            )
-
-            if output_format in ["pcm_raw", "wav", "opus"]:
+                encoded_audio = utils.encode_audio(
+                    audio_array=audio_np,
+                    sample_rate=sr,
+                    output_format=output_format,
+                    target_sample_rate=sample_rate,
+                )
                 await websocket.send_bytes(encoded_audio)
             else:
                 # fallback to base64 text if unsupported
