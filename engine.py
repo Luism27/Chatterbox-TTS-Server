@@ -17,7 +17,7 @@ from chatterbox.models.s3gen.const import (
 from config import config_manager
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.DEBUG)
 # --- Global Module Variables ---
 chatterbox_model: Optional[ChatterboxTTS] = None
 MODEL_LOADED: bool = False
