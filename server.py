@@ -528,87 +528,98 @@ async def websocket_stream(websocket: WebSocket):
         while True:
             try:
                 data = await websocket.receive_text()
-                payload = json.loads(data)
+            except WebSocketDisconnect:
+                print("[WS] Client disconnected cleanly.")
+                break
+            payload = json.loads(data)
 
-                text = payload.get("text") or payload.get("data")
-                voice_id = payload.get("predefined_voice_id") or payload.get("voice_uuid")
-                output_format = payload.get("output_format", "mp3").lower()
-                sample_rate = payload.get("sample_rate") or get_audio_sample_rate()
-                temperature = payload.get("temperature", 0.5)
-                exaggeration = payload.get("exaggeration", 0.5)
-                cfg_weight = payload.get("cfg_weight", 1.5)
-                seed = payload.get("seed", 0)
-                request_id = payload.get("request_id", "unknown")
+            text = payload.get("text") or payload.get("data")
+            voice_id = payload.get("predefined_voice_id") or payload.get("voice_uuid")
+            output_format = payload.get("output_format", "mp3").lower()
+            sample_rate = payload.get("sample_rate") or get_audio_sample_rate()
+            temperature = payload.get("temperature", 0.5)
+            exaggeration = payload.get("exaggeration", 0.5)
+            cfg_weight = payload.get("cfg_weight", 1.5)
+            seed = payload.get("seed", 0)
+            request_id = payload.get("request_id", "unknown")
 
-                if not text or not voice_id:
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": "Missing 'text' or 'voice_uuid'"
-                    }))
-                    continue
-
-                voice_path = f"voices/{voice_id}"
-                if not os.path.exists(voice_path):
-                    await websocket.send_text(json.dumps({
-                        "type": "error",
-                        "message": f"Voice file '{voice_id}' not found"
-                    }))
-                    continue
-
-                perf_monitor.record("TTS WebSocket request received")
-
-                audio_tensor, sr = engine.synthesize(
-                    text=text,
-                    audio_prompt_path=voice_path,
-                    temperature=temperature,
-                    exaggeration=exaggeration,
-                    cfg_weight=cfg_weight,
-                    seed=seed
-                )
-
-                if audio_tensor is None or sr is None:
-                    raise RuntimeError("TTS synthesis returned None")
-
-                audio_np = audio_tensor.cpu().numpy().squeeze()
-
-                encoded_audio = utils.encode_audio(
-                    audio_array=audio_np,
-                    sample_rate=sr,
-                    output_format=output_format,
-                    target_sample_rate=sample_rate,
-                )
-
-                if output_format in ["pcm_raw", "wav", "opus"]:
-                    await websocket.send_bytes(encoded_audio)
-                else:
-                    # fallback to base64 text if unsupported
-                    chunk_b64 = base64.b64encode(encoded_audio).decode("utf-8")
-                    await websocket.send_text(json.dumps({
-                        "type": "audio",
-                        "audio_content": chunk_b64,
-                        "request_id": request_id
-                    }))
-
-                await websocket.send_text(json.dumps({
-                    "type": "audio_end",
-                    "request_id": request_id
-                }))
-                print(f"[WS] Sent audio end response for request {request_id}.")
-
-                perf_monitor.record("TTS WebSocket response sent")
-
-            except Exception as e:
-                traceback.print_exc()
+            if not text or not voice_id:
                 await websocket.send_text(json.dumps({
                     "type": "error",
-                    "message": f"TTS synthesis failed: {str(e)}"
+                    "message": "Missing 'text' or 'voice_uuid'"
                 }))
+                continue
+
+            voice_path = f"voices/{voice_id}"
+            if not os.path.exists(voice_path):
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Voice file '{voice_id}' not found"
+                }))
+                continue
+
+            perf_monitor.record("TTS WebSocket request received")
+
+            audio_tensor, sr = engine.synthesize(
+                text=text,
+                audio_prompt_path=voice_path,
+                temperature=temperature,
+                exaggeration=exaggeration,
+                cfg_weight=cfg_weight,
+                seed=seed
+            )
+
+            if audio_tensor is None or sr is None:
+                raise RuntimeError("TTS synthesis returned None")
+
+            audio_np = audio_tensor.cpu().numpy().squeeze()
+
+            encoded_audio = utils.encode_audio(
+                audio_array=audio_np,
+                sample_rate=sr,
+                output_format=output_format,
+                target_sample_rate=sample_rate,
+            )
+
+            if output_format in ["pcm_raw", "wav", "opus"]:
+                await websocket.send_bytes(encoded_audio)
+            else:
+                # fallback to base64 text if unsupported
+                chunk_b64 = base64.b64encode(encoded_audio).decode("utf-8")
+                await websocket.send_text(json.dumps({
+                    "type": "audio",
+                    "audio_content": chunk_b64,
+                    "request_id": request_id
+                }))
+
+            await websocket.send_text(json.dumps({
+                "type": "audio_end",
+                "request_id": request_id
+            }))
+            print(f"[WS] Sent audio end response for request {request_id}.")
+
+            perf_monitor.record("TTS WebSocket response sent")
 
     except WebSocketDisconnect:
         logger.info("[WS] Client disconnected.")
     except Exception as e:
-        logger.exception("[WS] Unhandled error")
-        await websocket.close()
+        print("[WS] Error general:", str(e))
+        traceback.print_exc()
+
+        # IMPORTANTE: Solo intenta enviar o cerrar si el WebSocket sigue abierto
+        if not websocket.client_state.name == "DISCONNECTED":
+            try:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Error inesperado: {str(e)}"
+                }))
+            except Exception as send_err:
+                print("[WS] No se pudo enviar error al cliente:", send_err)
+
+            try:
+                await websocket.close()
+            except Exception as close_err:
+                print("[WS] Error cerrando WebSocket:", close_err)
 
 app.include_router(router)
 
