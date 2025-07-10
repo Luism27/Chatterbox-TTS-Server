@@ -593,6 +593,7 @@ async def websocket_stream(websocket: WebSocket):
                     "type": "audio_end",
                     "request_id": request_id
                 }))
+                print(f"[WS] Sent audio end response for request {request_id}.")
 
                 perf_monitor.record("TTS WebSocket response sent")
 
