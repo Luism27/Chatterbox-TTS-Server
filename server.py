@@ -517,7 +517,6 @@ router = APIRouter()
 @router.websocket("/stream")
 async def websocket_stream(websocket: WebSocket):
     auth = websocket.headers.get("Authorization")
-    print(f'auth ws: {auth}')
     if auth != f"Bearer {API_KEY}":
         await websocket.close(code=4401)
         return
@@ -527,31 +526,40 @@ async def websocket_stream(websocket: WebSocket):
 
     try:
         while True:
-            data = await websocket.receive_text()
-            payload = json.loads(data)
-
-            text = payload.get("text") or payload.get("data")
-            voice_id = payload.get("predefined_voice_id") or payload.get("voice_uuid")
-            output_format = payload.get("output_format", "mp3")
-            sample_rate = payload.get("sample_rate") or get_audio_sample_rate()
-            temperature = payload.get("temperature", 0.5)
-            exaggeration = payload.get("exaggeration", 0.5)
-            cfg_weight = payload.get("cfg_weight", 1.5)
-            seed = payload.get("seed", 0)
-
-            if not text or not voice_id:
-                await websocket.send_text(json.dumps({
-                    "type": "error",
-                    "message": "Missing 'text' or 'voice_uuid'"
-                }))
-                continue
-
-            perf_monitor.record("TTS WebSocket request received")
-
             try:
+                data = await websocket.receive_text()
+                payload = json.loads(data)
+
+                text = payload.get("text") or payload.get("data")
+                voice_id = payload.get("predefined_voice_id") or payload.get("voice_uuid")
+                output_format = payload.get("output_format", "mp3").lower()
+                sample_rate = payload.get("sample_rate") or get_audio_sample_rate()
+                temperature = payload.get("temperature", 0.5)
+                exaggeration = payload.get("exaggeration", 0.5)
+                cfg_weight = payload.get("cfg_weight", 1.5)
+                seed = payload.get("seed", 0)
+                request_id = payload.get("request_id", "unknown")
+
+                if not text or not voice_id:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": "Missing 'text' or 'voice_uuid'"
+                    }))
+                    continue
+
+                voice_path = f"voices/{voice_id}"
+                if not os.path.exists(voice_path):
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "message": f"Voice file '{voice_id}' not found"
+                    }))
+                    continue
+
+                perf_monitor.record("TTS WebSocket request received")
+
                 audio_tensor, sr = engine.synthesize(
                     text=text,
-                    audio_prompt_path=f"voices/{voice_id}",
+                    audio_prompt_path=voice_path,
                     temperature=temperature,
                     exaggeration=exaggeration,
                     cfg_weight=cfg_weight,
@@ -559,7 +567,7 @@ async def websocket_stream(websocket: WebSocket):
                 )
 
                 if audio_tensor is None or sr is None:
-                    raise RuntimeError("Synthesis returned None.")
+                    raise RuntimeError("TTS synthesis returned None")
 
                 audio_np = audio_tensor.cpu().numpy().squeeze()
 
@@ -570,19 +578,20 @@ async def websocket_stream(websocket: WebSocket):
                     target_sample_rate=sample_rate,
                 )
 
-                chunk_b64 = base64.b64encode(encoded_audio).decode("utf-8")
-
-                await websocket.send_text(json.dumps({
-                    "type": "audio",
-                    "audio_content": chunk_b64,
-                    "request_id": payload.get("request_id", "unknown")
-                }))
-
-                await asyncio.sleep(0.01)
+                if output_format in ["pcm_raw", "wav", "opus"]:
+                    await websocket.send_bytes(encoded_audio)
+                else:
+                    # fallback to base64 text if unsupported
+                    chunk_b64 = base64.b64encode(encoded_audio).decode("utf-8")
+                    await websocket.send_text(json.dumps({
+                        "type": "audio",
+                        "audio_content": chunk_b64,
+                        "request_id": request_id
+                    }))
 
                 await websocket.send_text(json.dumps({
                     "type": "audio_end",
-                    "request_id": payload.get("request_id", "unknown")
+                    "request_id": request_id
                 }))
 
                 perf_monitor.record("TTS WebSocket response sent")
@@ -595,10 +604,9 @@ async def websocket_stream(websocket: WebSocket):
                 }))
 
     except WebSocketDisconnect:
-        print("[WS] Disconnected cleanly.")
+        logger.info("[WS] Client disconnected.")
     except Exception as e:
-        print("[WS] Error:", str(e))
-        traceback.print_exc()
+        logger.exception("[WS] Unhandled error")
         await websocket.close()
 
 app.include_router(router)
